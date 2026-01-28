@@ -20,12 +20,15 @@ Cheat sheet
        python3 setup.py build_ext --inplace
        python3 -m unittest
 
- * Split [MUSDB18-HQ](https://sigsep.github.io/datasets/musdb.html) stems
-   into smaller chunks (so that the randomized training data set won't have to
-   load entire tracks just for taking short samples), and remove any metronome
-   marks and other irrelevant parts from the beginning of some multitracks:
+ * Split stems into smaller chunks (so that the randomized training data set
+   won't have to load entire tracks just for taking short samples), and remove
+   any metronome marks and other irrelevant parts from the beginning of some
+   multitracks:
 
        python3 split_stems.py raw_stems/start_times.tsv raw_stems/ stems/
+
+   The `raw_stems` directory is processed recursively. Files are expected to
+   have names like `some_song-guitars.wav`, `some_song-drums.wav`, etc.
 
  * Train a model from scratch with various learning rates:
 
@@ -48,16 +51,30 @@ Cheat sheet
        python3 eval.py xim.pt raw_stems/musdb18hq/test/ xim
        python3 eval.py hdemucs_high_trained.pt raw_stems/musdb18hq/test/ hdemucs
 
-Data augmentation
+Problem
+-------
+
+ * Traditional music source separation (MSS) focuses on separating audio tracks
+   (stems) that sum up to produce the given mix.
+
+ * Real-world music recordings are usually treated with a number of
+   non-linearities during a process called
+   [mastering](https://en.wikipedia.org/wiki/Mastering_(audio).
+
+    * E.g. dynamic range compression and brickwall limiting: when the track
+      gets loud (e.g. kick drum hit), its loudness is reduced for a split
+      second so that it cannot go above a certain level - then the loudness of
+      the entire track is raised. (See: [loudness war](https://en.wikipedia.org/wiki/Loudness_war).)
+
+   Separating a mastered track often results in stems with noticable
+   short term loudness variations ("pumping").
+
+Data Augmentation
 -----------------
 
-The music source separation (MSS) problem only seeks to separate the
-stems that sum up to the given mix, but most real-world music recordings are
-also treated with various non-linearities during the
-[mastering](https://en.wikipedia.org/wiki/Mastering_(audio)) process. In the
-hope that it might help the model learn to ignore the artifacts associated with
-these effects, the `TrainingDataset` class in `xim/data.py` uses a random
-combination of mastering effects and other augmentation techniques, including:
+In the hope that it might help the model learn to ignore mastering artifacts,
+the `TrainingDataset` class in `xim/data.py` uses a random combination of
+traditional MSS augmentation techniques and mastering effects, including:
 
  * pitch shifting,
  * slight timing variations,
@@ -67,8 +84,109 @@ combination of mastering effects and other augmentation techniques, including:
    [antiderivative anti-aliasing wave shapers, a.k.a. ADAA](https://en.wikipedia.org/wiki/Mastering_(audio)))
  * stereo widening,
  * dynamic range compression,
- * brickwall-limiting with random threshold,
+ * brickwall-limiting,
  * etc.
+
+(Most of these were implemented in [Cython](https://cython.org/) and C++.)
+
+Data
+----
+
+ * [MUSDB18-HQ](https://sigsep.github.io/datasets/musdb.html)
+ * 122 other other multitracks from various sources (e.g. FL Studio demo
+   projects rendered to separate stems, etc.)
+
+Challenges
+----------
+
+ * It is hard to come by multitrack recordings with all instruments separated.
+   A common compromise is to separate 4 stems: drums, bass, vocals, and others.
+
+    * Stems recorded to tape often contain multiple instruments bounced to the
+      same track due to the limited number of available tape tracks.
+
+ * Bleeding:
+
+    * Instruments often bleed into vocal stems through the vocalist's
+      headphones.
+
+    * Live recorded tracks often bleed into each other's microphones in the
+      room.
+
+ * It is hard to tell exactly how mastering affects the overall loudness of
+   individual stems, therefore the ground truth is sometimes vague.
+
+Models
+-----
+
+This project contains 2 models:
+
+### HDemucs
+
+ * Built into [Torchaudio](https://docs.pytorch.org/audio/stable/index.html),
+   used for comparison and experimenting.
+
+ * Uses a U-Net-like convolutional architecture to process both the raw
+   waveform and the spectrogram (hence Hybrid Demucs).
+
+### Xim
+
+ * The model expects 5 seconds long audio snippets.
+
+    * Longer audio can be processed by splitting it into smaller chunks with
+      some overlap, then merging the results with cross-fade.
+
+ * Performs [STFT](https://en.wikipedia.org/wiki/Short-time_Fourier_transform)
+   with overlapping windows, converting the magnitudes to log-scale.
+
+ * 3x3 convolutions followed by a linear projection compress the resulting
+   magnitude and phase information along the frequency bins axis into a
+   manageable number of features, keeping the resolution of the time axis.
+
+ * A pair of transformer encoders independently analyzes the resulting 2D image
+   (after adding a learnable positional embedding) along perpendicular axes:
+
+    * along the time axis to extract information about the relationships of
+      the features over time,
+
+    * along the feature dimensions axis to extract information about harmonic
+      relationships.
+
+ * The results of the encoders are summed up and passed to a sequence of
+   transformer decoders as `memory`, along with the positionally encoded
+   sequence of features as target.
+
+ * Each decoder is responsible for a single stem: a decoder produces a sequence
+   of feature deltas which get subtracted from the feature sequence before
+   being passed to the next decoder.
+
+    * The idea here is that the feature space should contain multiple versions
+      of the same recording, and each decoder should figure out how to get
+      from one version to the next:
+
+       1. full mix,
+       2. drumless version,
+       3. drum and bass removed version,
+       4. a single "others" track,
+       5. and complete silence.
+
+ * A feature delta produced by a decoder is converted into a mask by a
+   decoder-specific shallow dense network and the sigmoid function.
+
+    * The mask can take values between 0 and 2: when the STFT magnitudes are
+      multiplied elementwise with a mask, this allows the model to increase
+      some of the magnitudes, making it possible to remove some mastering
+      artifacts.
+
+ * Finally, the masked magnitudes and the original phase are turned back into
+   audio using inverse STFT.
+
+Training
+--------
+
+I used MSE + L1 for the loss function. (MSE alone is not recommended for MSS.)
+
+For regularization, I used 15% dropout.
 
 MUSDB18-HQ Results (WIP)
 ------------------------
@@ -85,7 +203,7 @@ higher is better.)
     * L1 = 0.025
     * SDR = 3.042 dB
 
- * pre-trained HDemucs in [Torchaudio](https://docs.pytorch.org/audio/stable/index.html):
+ * pre-trained HDemucs:
 
     * L1 = 0.011
     * SDR = 9.660 dB
@@ -102,5 +220,24 @@ higher is better.)
     * L1 = 0.028
     * SDR = 2.187 dB
 
-Maybe a normal unmixer model and a specific unmastering model would be a better
-way to approach this?
+Lessons learned, gotchas
+------------------------
+
+ * It takes up to 3-5 epochs for the model to realize that the time axis
+   exists. Up until then, it will produce masks with almost no variance over
+   the time axis, reducing the whole operation into a collection of
+   computationally very expensive [band-pass filters](https://en.wikipedia.org/wiki/Band-pass_filter).
+
+ * Good things come to those who wait: the loss explodes after a few epochs if
+   if the learning rate is too large; `1e-5` seems fine.
+
+Conclusion, further development
+-------------------------------
+
+ * Smoothen out and remove some debugging related remnants from the code.
+
+ * Try a few epochs with incorporating the "*jump to the same track but without
+   this stem*" logic into the loss function.
+
+ * Maybe a separate unmixer and a specific unmastering model would be a better
+   way to approach this? (This would solve the ground truth ambiguity.)

@@ -249,6 +249,8 @@ class FeatureExtractor(th.nn.Module):
 
         conv_layers = []
 
+        # TODO: check if normalization would be useful.
+
         for i in range(3):
             conv_layers += [
                 th.nn.Conv2d(in_channels=num_conv_ch, out_channels=num_conv_ch_next, kernel_size=1),
@@ -383,6 +385,7 @@ class MaskDecoder(th.nn.Module):
         )
         self.decoder.apply(init_weights)
 
+        # TODO: check if this is really needed.
         tgt_mask = th.nn.Transformer.generate_square_subsequent_mask(self.num_time_frames)
         self.register_buffer("tgt_mask", tgt_mask)
 
