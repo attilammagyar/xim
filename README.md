@@ -116,6 +116,10 @@ Challenges
  * It is hard to tell exactly how mastering affects the overall loudness of
    individual stems, therefore the ground truth is sometimes vague.
 
+ * In some genres like [EDM](https://en.wikipedia.org/wiki/Electronic_dance_music),
+   the pumping effect is an intentional stylistic choice.
+   (See also: [side-chain compression](https://en.wikipedia.org/wiki/Dynamic_range_compression#Side-chaining).)
+
 Models
 -----
 
