@@ -1,0 +1,4 @@
+build/
+xim/effects.c*
+xim/__pycache__/
+xim/*.so
