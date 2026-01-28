@@ -113,6 +113,9 @@ Challenges
     * Live recorded tracks often bleed into each other's microphones in the
       room.
 
+ * Some stems don't just have bleeding, they contain entire parts that should
+   be elsewhere.
+
  * It is hard to tell exactly how mastering affects the overall loudness of
    individual stems, therefore the ground truth is sometimes vague.
 
