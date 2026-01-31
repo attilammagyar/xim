@@ -104,8 +104,7 @@ def main(argv):
             model.fft_hop_length,
         )
         model_objs = tuple(find_conv2d(model.ftr_extractor.convolver, "ftr_extractor.convolver")) + (
-            ("src_pos", model.src_pos),
-            ("tgt_pos", model.tgt_pos),
+            ("pos", model.pos),
         )
         visualize_model(model_objs, out_dir_name)
 

@@ -86,8 +86,7 @@ class Xim(th.nn.Module):
             num_features=self.num_features,
         )
 
-        self.src_pos = th.nn.Parameter(th.randn(1, self.num_time_frames, self.num_features))
-        self.tgt_pos = th.nn.Parameter(th.randn(1, self.num_time_frames, self.num_features))
+        self.pos = th.nn.Parameter(th.randn(1, self.num_time_frames, self.num_features))
 
         self.ftr_encoder = FeatureEncoder(
             num_time_frames=self.num_time_frames,
@@ -99,16 +98,13 @@ class Xim(th.nn.Module):
             num_features=self.num_features,
         )
 
-        self.mask_decoders = th.nn.ModuleList(
-            [
-                MaskDecoder(
-                    num_time_frames=self.num_time_frames,
-                    num_features=self.num_features,
-                    num_channels=self.num_channels,
-                    num_freq_bins=self.num_freq_bins,
-                )
-                for i in range(4)
-            ]
+        self.stem_extractors = th.nn.ModuleList(
+            [StemExtractor(num_features=self.num_features) for i in range(3)]
+        )
+
+        self.mask_decoder = MaskDecoder(
+            num_features=self.num_features,
+            num_freq_bins=self.num_freq_bins,
         )
 
     def forward(self, audio):
@@ -119,23 +115,24 @@ class Xim(th.nn.Module):
 
         # ftrs.shape == [batch_size, num_time_frames, num_features]
         ftrs = self.ftr_extractor(mag, phase)
-
-        src = ftrs + self.src_pos
-        tgt = ftrs
-        delta = - self.tgt_pos
-        memory = self.ftr_encoder(src) + self.time_encoder(src)
-        masks = []
-
-        for mask_decoder in self.mask_decoders:
-            tgt = tgt - delta
-            mask, delta = mask_decoder(tgt, memory)
-            masks.append(mask)
+        ftrs_with_pos = ftrs + self.pos
 
         if self.is_debugging:
-            self.debug_info = (
-                [ftrs.numpy(force=True), mag.numpy(force=True)]
-                + [mask.numpy(force=True) for mask in masks]
-            )
+            self.debug_info = [ftrs.numpy(force=True), mag.numpy(force=True)]
+
+        memory = ftrs_with_pos + self.ftr_encoder(ftrs_with_pos) + self.time_encoder(ftrs_with_pos)
+        masks = []
+
+        for stem_extractor in self.stem_extractors:
+            delta = stem_extractor(ftrs_with_pos, memory)
+            ftrs_with_pos = ftrs_with_pos - delta
+            ftrs = ftrs - delta
+            masks.append(self.mask_decoder(delta))
+
+        masks.append(self.mask_decoder(ftrs))
+
+        if self.is_debugging:
+            self.debug_info += [mask.numpy(force=True) for mask in masks]
 
         stems_mag = th.stack([mag * mask for mask in masks], dim=1)
         stems_phase = th.stack([phase for i in range(stems_mag.shape[1])], dim=1)
@@ -307,13 +304,13 @@ class FeatureEncoder(th.nn.Sequential):
             th.nn.TransformerEncoder(
                 encoder_layer=th.nn.TransformerEncoderLayer(
                     d_model=num_features,
-                    dim_feedforward=3 * num_features,
+                    dim_feedforward=4 * num_features,
                     dropout=0.15,
-                    nhead=8,
+                    nhead=12,
                     activation="gelu",
                     batch_first=True,
                 ),
-                num_layers=5,
+                num_layers=6,
             ),
         )
 
@@ -333,13 +330,13 @@ class TimeEncoder(th.nn.Sequential):
             th.nn.TransformerEncoder(
                 encoder_layer=th.nn.TransformerEncoderLayer(
                     d_model=self.num_features,
-                    dim_feedforward=3 * self.num_features,
+                    dim_feedforward=4 * self.num_features,
                     dropout=0.15,
-                    nhead=8,
+                    nhead=12,
                     activation="gelu",
                     batch_first=True,
                 ),
-                num_layers=5,
+                num_layers=6,
             ),
             th.nn.Linear(
                 in_features=self.num_features,
@@ -355,42 +352,38 @@ class TimeEncoder(th.nn.Sequential):
         return super().forward(x.permute(0, 2, 1)).permute(0, 2, 1)
 
 
-class MaskDecoder(th.nn.Module):
-    def __init__(
-            self,
-            num_time_frames: int,
-            num_features: int,
-            num_channels: int,
-            num_freq_bins: int,
-    ):
+class StemExtractor(th.nn.Module):
+    def __init__(self, num_features: int):
         super().__init__()
 
-        self.num_time_frames = int(num_time_frames)
         self.num_features = int(num_features)
-        self.num_channels = int(num_channels)
-        self.num_freq_bins = int(num_freq_bins)
-
-        self.ftr_pos = th.nn.Parameter(th.randn(1, self.num_time_frames, self.num_features))
 
         self.decoder = th.nn.TransformerDecoder(
             decoder_layer=th.nn.TransformerDecoderLayer(
                 d_model=self.num_features,
-                dim_feedforward=3 * self.num_features,
+                dim_feedforward=4 * self.num_features,
                 dropout=0.15,
-                nhead=8,
+                nhead=12,
                 activation="gelu",
                 batch_first=True,
             ),
-            num_layers=5,
+            num_layers=6,
         )
         self.decoder.apply(init_weights)
 
-        # TODO: check if this is really needed.
-        tgt_mask = th.nn.Transformer.generate_square_subsequent_mask(self.num_time_frames)
-        self.register_buffer("tgt_mask", tgt_mask)
+    def forward(self, tgt, memory):
+        # tgt.shape == memory.shape == [batch_size, num_time_frames, num_features]
+        return self.decoder(tgt=tgt, memory=memory)
+
+
+class MaskDecoder(th.nn.Module):
+    def __init__(self, num_features: int, num_freq_bins: int):
+        super().__init__()
+
+        self.num_features = int(num_features)
+        self.num_freq_bins = int(num_freq_bins)
 
         self.upscaler = th.nn.Sequential(
-            th.nn.Dropout(p=0.15),
             th.nn.Linear(
                 in_features=self.num_features,
                 out_features=2 * self.num_features,
@@ -399,25 +392,27 @@ class MaskDecoder(th.nn.Module):
             th.nn.Dropout(p=0.15),
             th.nn.Linear(
                 in_features=2 * self.num_features,
+                out_features=4 * self.num_features,
+            ),
+            th.nn.GELU(),
+            th.nn.Dropout(p=0.15),
+            th.nn.Linear(
+                in_features=4 * self.num_features,
                 out_features=2 * self.num_freq_bins,
             ),
-
         )
 
-    def forward(self, tgt, memory):
-        # tgt.shape == memory.shape == [batch_size, num_time_frames, num_features]
+    def forward(self, ftrs):
+        # ftrs.shape == [batch_size, num_time_frames, num_features]
 
-        # delta.shape == [batch_size, num_time_frames, num_features]
-        delta = self.decoder(tgt=tgt, memory=memory, tgt_mask=self.tgt_mask)
-
-        mask = self.upscaler(delta)
+        mask = self.upscaler(ftrs)
         mask = th.stack([mask[:, :, :self.num_freq_bins], mask[:, :, self.num_freq_bins:]], dim=1)
         mask = mask.permute(0, 1, 3, 2)
 
         # mask.shape == [batch_size, num_channels, num_freq_bins, num_time_frames]
         mask = 2.0 * th.sigmoid(mask)
 
-        return mask, delta
+        return mask
 
 
 class HDemucs(tha.models.HDemucs):

@@ -176,7 +176,11 @@ This project contains 2 models:
        2. drumless version,
        3. drum and bass removed version,
        4. a single "others" track,
-       5. and complete silence.
+       5. and finally, complete silence.
+
+   Since the output of the last decoder is supposed to lead to complete
+   silence, the "others" track has no decoder layers, just the mask generator
+   network.
 
  * A feature delta produced by a decoder is converted into a mask by a
    decoder-specific shallow dense network and the sigmoid function.
@@ -234,8 +238,8 @@ higher is better.)
     * L1 = 0.026
     * SDR = 2.567 dB
 
-Lessons learned, gotchas
-------------------------
+Gotchas
+-------
 
  * It takes up to 3-5 epochs for the model to realize that the time axis
    exists. Up until then, it will produce masks with almost no variance over
@@ -248,10 +252,5 @@ Lessons learned, gotchas
 Conclusion, further development
 -------------------------------
 
- * Smoothen out and remove some debugging related remnants from the code.
-
- * Try a few epochs with incorporating the "*jump to the same track but without
-   this stem*" logic into the loss function.
-
- * Maybe a separate unmixer and a specific unmastering model would be a better
-   way to approach this? (This would solve the ground truth ambiguity.)
+Maybe a separate unmixer and a specific unmastering model would be a better
+way to approach this? (This would solve the ground truth ambiguity.)
