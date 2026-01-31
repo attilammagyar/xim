@@ -250,7 +250,8 @@ class TrainingDataset(Dataset):
             pitch_prob: float=0.5,
             offset_prob: float=0.3,
             channel_swap_prob: float=0.5,
-            gain_prob: float=0.5,
+            channel_drop_prob: float=0.15,
+            gain_prob: float=0.3,
             stereo_enhancer_prob: float=0.3,
             compressor_prob: float=0.3,
             dist_prob: float=0.2,
@@ -292,6 +293,7 @@ class TrainingDataset(Dataset):
         self.pitch_prob = float(pitch_prob)
         self.offset_prob = float(offset_prob)
         self.channel_swap_prob = float(channel_swap_prob)
+        self.channel_drop_prob = float(channel_drop_prob)
         self.gain_prob = float(gain_prob)
         self.stereo_enhancer_prob = float(stereo_enhancer_prob)
         self.compressor_prob = float(compressor_prob)
@@ -428,6 +430,10 @@ class TrainingDataset(Dataset):
 
             if random.random() < self.channel_swap_prob:
                 component = np.stack((component[:, 1], component[:, 0])).T
+
+            for channel_idx in range(self.num_channels):
+                if random.random() < self.channel_drop_prob:
+                    component[:, channel_idx] = 0.0
 
             gain_db = self._random(self.random_gain_db_min, self.random_gain_db_max)
             effects.apply_effects(

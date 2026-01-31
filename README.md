@@ -79,6 +79,7 @@ traditional MSS augmentation techniques and mastering effects, including:
  * pitch shifting,
  * slight timing variations,
  * mixing stems of random songs,
+ * silencing stems or stereo channels,
  * [equalization](https://en.wikipedia.org/wiki/Audio_equalization),
  * soft-clipping (implemented with
    [antiderivative anti-aliasing wave shapers, a.k.a. ADAA](https://en.wikipedia.org/wiki/Mastering_(audio)))
