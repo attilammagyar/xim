@@ -168,7 +168,7 @@ class TrainingLoop(xim.train.TrainingLoop):
         return mse + l1
 
     def before_epoch(self, epoch_idx: int) -> typing.Optional[tuple]:
-        self.batch_losses = {}
+        pass
 
     def after_epoch(
             self,
