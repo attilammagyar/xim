@@ -233,10 +233,10 @@ higher is better.)
     * SDR = 2.671 dB
 
  * Xim trained from scratch on MUSDB18-HQ and 122 other multitracks with
-   random mastering for 33 epochs with `1e-5` learning rate:
+   random mastering for 93 epochs with `1e-5` learning rate:
 
-    * L1 = 0.0242
-    * SDR = 3.024 dB
+    * L1 = 0.023
+    * SDR = 3.449 dB
 
 Gotchas
 -------
