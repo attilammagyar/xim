@@ -139,10 +139,14 @@ class TrainingLoop:
         train_loss_min_str = "..."
         test_loss_min_str = "..."
 
-        if len(self.train_losses) < 2 or train_loss < min(self.train_losses[:-1]):
+        if len(self.train_losses) < 2:
+            train_loss_min_str = "###"
+        elif train_loss < min(self.train_losses[:-1]):
             train_loss_min_str = "MIN"
 
-        if len(self.test_losses) < 2 or test_loss < min(self.test_losses[:-1]):
+        if len(self.test_losses) < 2:
+            test_loss_min_str = "###"
+        elif test_loss < min(self.test_losses[:-1]):
             test_loss_min_str = "MIN"
 
         return (
